@@ -15,10 +15,36 @@ bot.on('message', async (msg) => {
 
   if (!text) return;
 
-  // 存储逻辑：格式 “物品 在 位置”
-  if (text.includes("在") && !text.includes("在哪")) {
+  // 查询逻辑（优先判断）
+  if (text.includes("在哪") || text.includes("在哪里")) {
 
-    const parts = text.split("在");
+    const item = text
+      .replace("在哪", "")
+      .replace("在哪里", "")
+      .replace("？", "")
+      .replace("?", "")
+      .trim();
+
+    const { data } = await supabase
+      .from('items')
+      .select('*')
+      .ilike('item', `%${item}%`)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (data && data.length > 0) {
+      bot.sendMessage(chatId, `${item} 在 ${data[0].location} 📍`);
+    } else {
+      bot.sendMessage(chatId, "没有找到记录 🤔");
+    }
+
+    return;
+  }
+
+  // 存储逻辑（必须严格包含“ 在 ”）
+  if (text.includes(" 在 ")) {
+
+    const parts = text.split(" 在 ");
     const item = parts[0].trim();
     const location = parts[1].trim();
 
@@ -31,32 +57,9 @@ bot.on('message', async (msg) => {
     } else {
       bot.sendMessage(chatId, `已记录：${item} 在 ${location} ✅`);
     }
+
+    return;
   }
 
-  // 查询逻辑：格式 “物品在哪”
-  else if (text.includes("在哪")) {
-
-    const item = text
-      .replace("在哪", "")
-      .replace("？", "")
-      .replace("?", "")
-      .trim();
-
-    const { data, error } = await supabase
-      .from('items')
-      .select('*')
-      .ilike('item', `%${item}%`)
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (data && data.length > 0) {
-      bot.sendMessage(chatId, `${item} 在 ${data[0].location} 📍`);
-    } else {
-      bot.sendMessage(chatId, "没有找到记录 🤔");
-    }
-  }
-
-  else {
-    bot.sendMessage(chatId, "请用：物品 在 位置 或 物品在哪");
-  }
+  bot.sendMessage(chatId, "请用：物品 在 位置 或 物品在哪");
 });
