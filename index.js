@@ -15,12 +15,12 @@ bot.on('message', async (msg) => {
 
   if (!text) return;
 
-  // 查询逻辑（优先判断）
-  if (text.includes("在哪") || text.includes("在哪里")) {
+  // ===== 查询逻辑 =====
+  if (text.includes("在哪里") || text.includes("在哪")) {
 
     const item = text
-      .replace("在哪", "")
       .replace("在哪里", "")
+      .replace("在哪", "")
       .replace("？", "")
       .replace("?", "")
       .trim();
@@ -41,7 +41,7 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // 存储逻辑（必须严格包含“ 在 ”）
+  // ===== 存储逻辑 =====
   if (text.includes(" 在 ")) {
 
     const parts = text.split(" 在 ");
@@ -61,5 +61,5 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  bot.sendMessage(chatId, "请用：物品 在 位置 或 物品在哪");
+  bot.sendMessage(chatId, "请用：物品 在 位置 或 物品在哪里");
 });
