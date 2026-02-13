@@ -15,8 +15,31 @@ bot.on('message', async (msg) => {
 
   if (!text) return;
 
-  // 存储逻辑：格式 “物品 在 位置”
-  if (text.includes("在")) {
+  // ✅ 先判断查询逻辑
+  if (text.includes("在哪")) {
+    const item = text.replace("在哪", "").trim();
+
+    const { data, error } = await supabase
+      .from('items')
+      .select('*')
+      .eq('item', item)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      bot.sendMessage(chatId, "查询失败 ❌");
+      return;
+    }
+
+    if (data && data.length > 0) {
+      bot.sendMessage(chatId, `${item} 在 ${data[0].location} 📍`);
+    } else {
+      bot.sendMessage(chatId, "没有找到记录 🤔");
+    }
+  }
+
+  // ✅ 再判断存储逻辑
+  else if (text.includes("在")) {
     const parts = text.split("在");
     const item = parts[0].trim();
     const location = parts[1].trim();
@@ -29,24 +52,6 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, "保存失败 ❌");
     } else {
       bot.sendMessage(chatId, `已记录：${item} 在 ${location} ✅`);
-    }
-  }
-
-  // 查询逻辑：格式 “物品在哪”
-  else if (text.includes("在哪")) {
-    const item = text.replace("在哪", "").trim();
-
-    const { data } = await supabase
-      .from('items')
-      .select('*')
-      .eq('item', item)
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (data && data.length > 0) {
-      bot.sendMessage(chatId, `${item} 在 ${data[0].location}`);
-    } else {
-      bot.sendMessage(chatId, "没有找到记录 🤔");
     }
   }
 
