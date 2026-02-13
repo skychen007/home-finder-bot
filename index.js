@@ -10,24 +10,21 @@ const supabase = createClient(
 );
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY,
 });
-
-const userStates = {};
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
+  const text = msg.text;
   const userId = msg.from.id;
-  const username = msg.from.username || msg.from.first_name;
 
-  // ========================
-  // 📷 处理照片
-  // ========================
+  // ======================
+  // 📸 图片识别
+  // ======================
   if (msg.photo) {
-    const fileId = msg.photo[msg.photo.length - 1].file_id;
-    const fileLink = await bot.getFileLink(fileId);
-
-    await bot.sendMessage(chatId, "📸 正在识别物品，请稍等...");
+    const photo = msg.photo[msg.photo.length - 1];
+    const file = await bot.getFile(photo.file_id);
+    const imageUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_TOKEN}/${file.file_path}`;
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -35,79 +32,84 @@ bot.on('message', async (msg) => {
         {
           role: "user",
           content: [
-            { type: "text", text: "请告诉我这张图片里最主要的物品名称，只回答物品名。" },
-            { type: "image_url", image_url: { url: fileLink } }
+            { type: "text", text: "这张图片里最主要的物品是什么？只回答物品名称。" },
+            { type: "image_url", image_url: { url: imageUrl } }
           ]
         }
       ]
     });
 
-    const detectedItem = response.choices[0].message.content.trim();
+    const itemName = response.choices[0].message.content.trim();
 
-    userStates[userId] = { pendingItem: detectedItem };
+    await supabase
+      .from('items')
+      .insert([{ item: itemName, location: "未指定位置", user_id: userId }]);
 
-    await bot.sendMessage(chatId, `我识别到：${detectedItem} 📦\n它放在哪里？`);
-
+    bot.sendMessage(chatId, `📸 识别到：${itemName}，已记录。`);
     return;
   }
 
-  const text = msg.text;
   if (!text) return;
 
-  // ========================
-  // 等待用户输入位置
-  // ========================
-  if (userStates[userId]?.pendingItem) {
-    const item = userStates[userId].pendingItem;
-    const location = text.trim();
+  // ======================
+  // 🧠 AI 理解自然语言
+  // ======================
 
-    await supabase.from('items').insert([
-      { item, location, user_id: userId, username }
-    ]);
+  const ai = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `
+你是一个家庭物品管理助手。
+如果用户是在询问物品位置，请返回 JSON:
+{"type":"query","item":"物品名称"}
 
-    delete userStates[userId];
+如果用户是在说明物品位置，请返回:
+{"type":"save","item":"物品名称","location":"位置"}
 
-    await bot.sendMessage(chatId, `已记录：${item} 在 ${location} ✅`);
+不要返回解释，只返回 JSON。
+`
+      },
+      { role: "user", content: text }
+    ]
+  });
+
+  let parsed;
+  try {
+    parsed = JSON.parse(ai.choices[0].message.content);
+  } catch {
+    bot.sendMessage(chatId, "我没理解 🤔 可以换种说法试试。");
     return;
   }
 
-  // ========================
-  // 查询逻辑
-  // ========================
-  if (text.includes("在哪")) {
-    const item = text.replace("在哪", "").replace("在哪里", "").trim();
-
+  // ======================
+  // 查询
+  // ======================
+  if (parsed.type === "query") {
     const { data } = await supabase
       .from('items')
       .select('*')
-      .ilike('item', `%${item}%`)
+      .eq('user_id', userId)
+      .ilike('item', `%${parsed.item}%`)
       .order('created_at', { ascending: false })
       .limit(1);
 
     if (data && data.length > 0) {
-      bot.sendMessage(chatId, `${item} 在 ${data[0].location} 📍`);
+      bot.sendMessage(chatId, `📍 ${parsed.item} 在 ${data[0].location}`);
     } else {
       bot.sendMessage(chatId, "没有找到记录 🤔");
     }
-    return;
   }
 
-  // ========================
-  // 文字存储（更灵活）
-  // ========================
-  const match = text.match(/(.+?)在(.+)/);
+  // ======================
+  // 保存
+  // ======================
+  if (parsed.type === "save") {
+    await supabase
+      .from('items')
+      .insert([{ item: parsed.item, location: parsed.location, user_id: userId }]);
 
-  if (match) {
-    const item = match[1].trim();
-    const location = match[2].trim();
-
-    await supabase.from('items').insert([
-      { item, location, user_id: userId, username }
-    ]);
-
-    bot.sendMessage(chatId, `已记录：${item} 在 ${location} ✅`);
-    return;
+    bot.sendMessage(chatId, `✅ 已记录：${parsed.item} 在 ${parsed.location}`);
   }
-
-  bot.sendMessage(chatId, "可以说：钥匙在抽屉 / 钥匙在哪 / 或直接拍照 📷");
 });
